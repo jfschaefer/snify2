@@ -1,0 +1,16 @@
+*.out
+*.upa
+.idea
+**/__pycache__
+*-blx.bib
+*.aux
+*.bbl
+*.blg
+*.log
+*.run.xml
+*.synctex.gz
+*.pdf
+*~
+auto
+*.swp
+.venv
