@@ -27,6 +27,6 @@ class QuitCommand(Command):
 class QuittableStepper(Stepper[S]):
     def handle_command_outcome(self, outcome: CommandOutcome) -> Optional[Modification[S]]:
         if isinstance(outcome, QuitOutcome):
-            raise StopStepper()
+            raise StopStepper('quit')
 
         return super().handle_command_outcome(outcome)

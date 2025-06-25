@@ -119,7 +119,6 @@ class CommandCollection:
     def apply(self) -> Sequence[CommandOutcome]:
         self._print_commands()
         interface.write_text('>>>', style='bold')
-        interface.write_text(' ')
         call = interface.get_input()
 
         for command in self._pure_commands():

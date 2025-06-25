@@ -1,15 +1,13 @@
 from abc import abstractmethod, ABC
-from typing import Optional, TypeVar, Generic, Sequence
+from typing import Optional, TypeVar, Generic, Sequence, Literal, TypeAlias
 
 from ffutil.stepper.command import CommandCollection, CommandOutcome
 
 
-class Cursor:
-    """Abstract class for representing the current position of the stepper"""
-    pass
+Cursor = TypeVar('Cursor')
 
 
-class State:
+class State(Generic[Cursor]):
     """
     The state of the stepper.
     It may be pickled to restore the stepper's state in a future session.
@@ -32,9 +30,13 @@ class Modification(ABC, Generic[S]):
         pass
 
 
+StopReason: TypeAlias = Literal['done', 'quit', 'fatal_error']
+
 class StopStepper(Exception):
     """Raised to stop the stepper loop."""
-    pass
+    def __init__(self, reason: StopReason):
+        super().__init__(f'StopStepper: {reason}')
+        self.reason = reason
 
 
 class Stepper(ABC, Generic[S]):
@@ -49,13 +51,13 @@ class Stepper(ABC, Generic[S]):
         self.modification_history: list[list[Modification[S]]] = []
         self.modification_future: list[list[Modification[S]]] = []
 
-    def run(self):
+    def run(self) -> StopReason:
         """Run the stepper until it is stopped."""
         try:
             while True:
                 self._single_iteration()
-        except StopStepper:
-            pass
+        except StopStepper as e:
+            return e.reason
 
     def _single_iteration(self):
         self.ensure_state_up_to_date()

@@ -1,7 +1,9 @@
-# CATALOG
+"""
+Code for working with local sTeX archives.
+"""
 import dataclasses
-import re
 from functools import cached_property
+from pathlib import Path
 from typing import Iterable
 
 from ffutil.snify.catalog import Verbalization, Catalog, catalogs_from_stream
@@ -95,6 +97,7 @@ def local_flams_stex_verbs() -> Iterable[tuple[str, LocalStexSymbol, LocalStexVe
                     symbol.srefcount += 1
                     range_ = ctx.opened_file.flams_range_to_offsets(v['text'][0])
                     verb = ctx.opened_file.text[range_[0]:range_[1]]
+                    lang = lang_from_path(ctx.localpath)
                     yield (
                         lang,
                         symbol,
@@ -112,15 +115,21 @@ def local_flams_stex_verbs() -> Iterable[tuple[str, LocalStexSymbol, LocalStexVe
     # The main extraction loop
     FLAMS.require_all_files_loaded()
     for path in FLAMS.get_loaded_files():
-        segments = path.split('/')[-1].split('.')
-        lang = 'en'   # default
-        if len(segments) > 2 and len(segments[-2]) < 5:
-            lang = segments[-2]
 
         annos = FLAMS.get_file_annotations(path)
 
         yield from _extract(annos, Ctx(path, OpenedFile(path)))
 
+
+def lang_from_path(path: str | Path) -> str:
+    if isinstance(path, Path):
+        segments = path.name.split('.')
+    else:
+        segments = path.split('/')[-1].split('.')
+    lang = 'en'   # default
+    if len(segments) > 2 and len(segments[-2]) < 5:
+        lang = segments[-2]
+    return lang
 
 def local_flams_stex_catalogs() -> dict[str, Catalog[LocalStexSymbol, LocalStexVerbalization]]:
     return catalogs_from_stream(local_flams_stex_verbs())
@@ -132,7 +141,7 @@ if __name__ == '__main__':
     print('catalogs')
     for lang, catalog in catalogs.items():
         print(f'Catalog for language: {lang}')
-        for symb, verbs in catalog.lookup.verbs.items():
+        for symb, verbs in catalog.symb_to_verb.items():
             print(f'  Symbol: {symb.uri} ({symb.path}), References: {symb.srefcount}')
             for verb in verbs:
                 print(f'    Verbalization: {verb.verb}, Path: {verb.local_path}, Range: {verb.path_range}')

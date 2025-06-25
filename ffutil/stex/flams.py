@@ -1,5 +1,4 @@
 import functools
-import json
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +17,7 @@ void load_all_files();
 char* get_file_annotations(char* path);
 void load_file(char* s);
 char* list_of_loaded_files();
+char* list_of_all_files();
 void free_string(char* s);
 """)
 
