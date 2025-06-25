@@ -1,8 +1,9 @@
 import configparser
 import functools
+import logging
 from pathlib import Path
 
-from ffutil.__main__ import logger
+logger = logging.getLogger(__name__)
 
 
 CACHE_DIR = Path('~/.cache/stextools').expanduser()

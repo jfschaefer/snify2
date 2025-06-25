@@ -3,7 +3,7 @@ from typing import Optional
 
 from ffutil.snify.catalog import Catalog
 from ffutil.snify.document import STeXDocument, Document
-from ffutil.snify.local_stex import LocalStexSymbol, LocalStexVerbalization, local_flams_stex_catalogs
+from ffutil.snify.local_stex_catalog import LocalStexSymbol, LocalStexVerbalization, local_flams_stex_catalogs
 from ffutil.snify.snifystate import SnifyState, SnifyCursor
 from ffutil.stepper.command import CommandCollection
 from ffutil.stepper.interface import interface

@@ -28,6 +28,12 @@ void free_string(char* s);
         lib.initialize()
         return lib
 
+    def _cstr_to_json(self, c_str) -> Any:
+        """Convert a C string to a JSON object."""
+        py_str = self.ffi.string(c_str).decode('utf-8')
+        self.lib.free_string(c_str)
+        return orjson.loads(py_str)
+
     def hello_world(self, arg: int):
         self.lib.hello_world(arg)
 
@@ -58,11 +64,10 @@ void free_string(char* s);
         return None
 
     def get_loaded_files(self) -> list[str]:
-        self.require_all_files_loaded()
-        c_str = self.lib.list_of_loaded_files()
-        py_str = self.ffi.string(c_str).decode('utf-8')
-        self.lib.free_string(c_str)
-        return orjson.loads(py_str)
+        return self._cstr_to_json(self.lib.list_of_loaded_files())
+
+    def get_all_files(self) -> list[str]:
+        return self._cstr_to_json(self.lib.list_of_all_files())
 
 FLAMS = _Flams()
 
