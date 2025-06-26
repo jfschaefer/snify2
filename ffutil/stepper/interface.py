@@ -327,6 +327,10 @@ class ConsoleInterface(Interface):
 
         interface.newline()
 
+    def await_confirmation(self):
+        self.write_text('Press Enter to continue...', style='default')
+        input()   # get_input doesn't work for empty input
+
 
 
 actual_interface: Interface = MinimalInterface()

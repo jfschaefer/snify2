@@ -72,6 +72,7 @@ class Catalog(Generic[Symb, Verb]):
         The code could theoretically be optimized (if verbalizations have very many words),
         but in practice verbalizations are short.
         """
+
         lstr = string_to_lstr(string)
         seq: list[LinkedStr] = string_to_stemmed_word_sequence(lstr, self.lang)
         match_start = 0

@@ -2,9 +2,10 @@
 Code for parsing sTeX files.
 This is not based on FLAMS (FLAMS only extracts annotations, and we need the informal content as well).
 """
+from typing import Iterable
 
 from pylatexenc.latexwalker import get_default_latex_context_db, LatexWalker, LatexMathNode, LatexCommentNode, \
-    LatexSpecialsNode, LatexMacroNode, LatexEnvironmentNode, LatexGroupNode, LatexCharsNode
+    LatexSpecialsNode, LatexMacroNode, LatexEnvironmentNode, LatexGroupNode, LatexCharsNode, LatexNode
 from pylatexenc.macrospec import MacroSpec, std_environment, VerbatimArgsParser
 
 from ffutil.stepper.interface import interface
@@ -190,3 +191,19 @@ def get_annotatable_plaintext(
     _recurse(walker.get_latex_nodes()[0])
 
     return result
+
+
+def iterate_latex_nodes(nodes) -> Iterable[LatexNode]:
+    for node in nodes:
+        yield node
+        if node is None or node.nodeType() in {LatexSpecialsNode}:
+            continue
+        elif node.nodeType() in {LatexMacroNode}:
+            if node.nodeargd:
+                yield from iterate_latex_nodes(node.nodeargd.argnlist)
+        elif node.nodeType() in {LatexMathNode, LatexGroupNode, LatexEnvironmentNode}:
+            yield from iterate_latex_nodes(node.nodelist)
+        elif node.nodeType() in {LatexCommentNode, LatexCharsNode}:
+            pass
+        else:
+            raise RuntimeError(f"Unexpected node type: {node.nodeType()}")

@@ -16,7 +16,7 @@ import orjson
 
 from ffutil.config import CACHE_DIR
 from ffutil.snify.catalog import Verbalization, Catalog, catalogs_from_stream
-from ffutil.snify.local_stex import OpenedFile, lang_from_path
+from ffutil.snify.local_stex import OpenedStexFLAMSFile, lang_from_path
 from ffutil.stex.flams import FLAMS
 from ffutil.utils.timer import timelogger
 
@@ -57,7 +57,7 @@ class LocalStexVerbalization(Verbalization):
 RawVerbEntry: TypeAlias = tuple[str, str, str, str, int, int]
 
 
-def _verb_extraction(j, opened_file: OpenedFile) -> Iterable[RawVerbEntry]:
+def _verb_extraction(j, opened_file: OpenedStexFLAMSFile) -> Iterable[RawVerbEntry]:
     """ recurse through the annotation json to find symrefs and co.
     This code deserves heavy optimization,
     which explains why it is somewhat messy. """
@@ -67,22 +67,34 @@ def _verb_extraction(j, opened_file: OpenedFile) -> Iterable[RawVerbEntry]:
             if k in {'full_range', 'val_range', 'key_range', 'Sig', 'smodule_range', 'Title', 'path_range',
                      'archive_range', 'UseModule'}:
                 continue
-            if k == 'Symref':
+            if k in {'Symref', 'SymName'}:
                 # symbol = _get_symbol(v['uri'][0]['uri'], v['uri'][0]['filepath'])
-                range_ = opened_file.flams_range_to_offsets(v['text'][0])
-                verb = opened_file.text[range_[0]:range_[1]]
-                lang = lang_from_path(opened_file.path)
+                if k == 'Symref':
+                    range_ = opened_file.flams_range_to_offsets(v['text'][0])
+                    verb = opened_file.text[range_[0]:range_[1]]
+                    verb = verb[1:-1]  # remove braces
+                else:
+                    range_ = opened_file.flams_range_to_offsets(v['name_range'])
+                    verb = opened_file.text[range_[0]:range_[1]]
+                    if '?' in verb:
+                        verb = verb.split('?')[-1]
+                    # TODO: For \Sn{edge}, we'd now have the verbalization "edge", not "Edge"
+                    #  is this desirable?
 
+                lang = lang_from_path(opened_file.path)
                 symbol_uri: str = v['uri'][0]['uri']
                 symbol_path: str = v['uri'][0]['filepath']
                 yield (
                     lang,
                     symbol_uri,
                     symbol_path,
-                    verb[1:-1],  # remove braces
+                    verb,
                     range_[0],
                     range_[1],
                 )
+                continue
+
+            yield from _verb_extraction(v, opened_file)
 
     elif isinstance(j, list):
         for item in j:
@@ -118,7 +130,7 @@ def local_flams_stex_catalogs() -> dict[str, Catalog[LocalStexSymbol, LocalStexV
     with timelogger(logger, 'Cleaning up cache'):
         all_files = FLAMS.get_all_files()
         all_files_set = set(all_files)
-        for path, entry in cache.items():
+        for path, entry in list(cache.items()):
             # if modification time check is slow, it can be parallelized
             if path not in all_files_set or entry['last_modified'] < os.stat(path).st_mtime:
                 deletions += 1
@@ -133,7 +145,7 @@ def local_flams_stex_catalogs() -> dict[str, Catalog[LocalStexSymbol, LocalStexV
             annos = FLAMS.get_file_annotations(path)
             cache[path] = {
                 'last_modified': os.stat(path).st_mtime,
-                'verbs': list(_verb_extraction(annos, OpenedFile(path)))
+                'verbs': list(_verb_extraction(annos, OpenedStexFLAMSFile(path)))
             }
 
     if deletions + len(todo_list) > 100:

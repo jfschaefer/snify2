@@ -1,7 +1,8 @@
-from typing import Optional
+from copy import deepcopy
+from typing import Optional, Generic
 
 from ffutil.stepper.command import Command, CommandInfo, CommandOutcome
-from ffutil.stepper.stepper import Stepper, Modification, S, StopStepper
+from ffutil.stepper.stepper import Stepper, Modification, StateType, StopStepper, CursorType
 
 
 #######################################################################
@@ -24,9 +25,39 @@ class QuitCommand(Command):
         return [QuitOutcome()]
 
 
-class QuittableStepper(Stepper[S]):
-    def handle_command_outcome(self, outcome: CommandOutcome) -> Optional[Modification[S]]:
+class QuittableStepper(Stepper[StateType]):
+    def handle_command_outcome(self, outcome: CommandOutcome) -> Optional[Modification[StateType]]:
         if isinstance(outcome, QuitOutcome):
             raise StopStepper('quit')
+
+        return super().handle_command_outcome(outcome)
+
+
+#######################################################################
+#   CURSOR SETTING
+#######################################################################
+
+class SetCursorOutcome(CommandOutcome, Generic[CursorType]):
+    def __init__(self, new_cursor: CursorType):
+        self.new_cursor = new_cursor
+
+
+class CursorModification(Modification[StateType], Generic[StateType, CursorType]):
+    def __init__(self, old_cursor: CursorType, new_cursor: CursorType):
+        self.old_cursor = old_cursor
+        self.new_cursor = new_cursor
+
+    def apply(self, state: StateType):
+        print(f'CursorModification: changing cursor from {self.old_cursor} to {self.new_cursor}')
+        state.cursor = self.new_cursor
+
+    def unapply(self, state: StateType):
+        state.cursor = self.old_cursor
+
+
+class CursorModifyingStepper(Stepper[StateType]):
+    def handle_command_outcome(self, outcome: CommandOutcome) -> Optional[Modification[StateType]]:
+        if isinstance(outcome, SetCursorOutcome):
+            return CursorModification(deepcopy(self.state.cursor), deepcopy(outcome.new_cursor))
 
         return super().handle_command_outcome(outcome)

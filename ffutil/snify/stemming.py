@@ -1,8 +1,11 @@
 import functools
 import re
+from logging import getLogger
 
 from ffutil.utils.linked_str import LinkedStr
+from ffutil.utils.warnonce import warn_once
 
+logger = getLogger(__name__)
 
 SUPPORTED_LANGUAGES = {'en', 'de', 'fr'}
 
@@ -18,7 +21,9 @@ def get_stem_fun(lang: str):
     elif lang == 'fr':
         from nltk.stem import FrenchStemmer
         return FrenchStemmer().stem
-    raise ValueError(f"Unsupported language: {lang}")
+    warn_once(logger, f'Unsupported language for stemming: {lang}. No stemming will be applied.')
+    return lambda word: word
+    # raise ValueError(f"Unsupported language: {lang}")
 
 
 @functools.cache  # note: caching results in a huge speedup
@@ -35,7 +40,7 @@ def mystem(word: str, lang: str) -> str:
     elif lang == 'de':
         return ' '.join(stem_fun(w) for w in word.split())
     else:
-        raise ValueError(f"Unsupported language: {lang}")
+        return ' '.join(stem_fun(w) for w in word.split())
 
 
 def string_to_stemmed_word_sequence(lstr: LinkedStr, lang: str) -> list[LinkedStr]:

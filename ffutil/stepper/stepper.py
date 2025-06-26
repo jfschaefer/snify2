@@ -4,29 +4,29 @@ from typing import Optional, TypeVar, Generic, Sequence, Literal, TypeAlias
 from ffutil.stepper.command import CommandCollection, CommandOutcome
 
 
-Cursor = TypeVar('Cursor')
+CursorType = TypeVar('CursorType')
 
 
-class State(Generic[Cursor]):
+class State(Generic[CursorType]):
     """
     The state of the stepper.
     It may be pickled to restore the stepper's state in a future session.
     It may therefore be necessary that the stepper keeps an additional state for ephemeral data.
     """
-    def __init__(self, cursor: Cursor):
+    def __init__(self, cursor: CursorType):
         self.cursor = cursor
 
 
-S = TypeVar('S', bound=State)
+StateType = TypeVar('StateType', bound=State)
 
-class Modification(ABC, Generic[S]):
+class Modification(ABC, Generic[StateType]):
     """A change that can be undone. E.g. a file modification."""
     @abstractmethod
-    def apply(self, state: S):
+    def apply(self, state: StateType):
         pass
 
     @abstractmethod
-    def unapply(self, state: S):
+    def unapply(self, state: StateType):
         pass
 
 
@@ -39,17 +39,17 @@ class StopStepper(Exception):
         self.reason = reason
 
 
-class Stepper(ABC, Generic[S]):
+class Stepper(ABC, Generic[StateType]):
     """
     The base class for "ispell-like" functionality.
     """
-    def __init__(self, state: S):
+    def __init__(self, state: StateType):
         self.state = state
 
         # a single undoing/redoing may undo/redo multiple modifications
         # (e.g. modify a file and change the cursor position)
-        self.modification_history: list[list[Modification[S]]] = []
-        self.modification_future: list[list[Modification[S]]] = []
+        self.modification_history: list[list[Modification[StateType]]] = []
+        self.modification_future: list[list[Modification[StateType]]] = []
 
     def run(self) -> StopReason:
         """Run the stepper until it is stopped."""
@@ -63,7 +63,7 @@ class Stepper(ABC, Generic[S]):
         self.ensure_state_up_to_date()
         self.show_current_state()
         outcomes: Sequence[CommandOutcome] = self.get_current_command_collection().apply()
-        new_modifications: list[Modification[S]] = []
+        new_modifications: list[Modification[StateType]] = []
         for outcome in outcomes:
             assert isinstance(outcome, CommandOutcome)
             modification = self.handle_command_outcome(outcome)
@@ -79,7 +79,7 @@ class Stepper(ABC, Generic[S]):
     def ensure_state_up_to_date(self):
         """May do nothing, but could, e.g., update the cursor."""
 
-    def reset_after_modification(self, modification: Modification[S], is_undone: bool = False):
+    def reset_after_modification(self, modification: Modification[StateType], is_undone: bool = False):
         """Sometimes modifications require resetting something (e.g. invalidating caches after file modifications)."""
         pass
 
@@ -91,6 +91,6 @@ class Stepper(ABC, Generic[S]):
     def get_current_command_collection(self) -> CommandCollection:
         """Should return the commands currently applicable to the current state."""
 
-    def handle_command_outcome(self, outcome: CommandOutcome) -> Optional[Modification[S]]:
+    def handle_command_outcome(self, outcome: CommandOutcome) -> Optional[Modification[StateType]]:
         """Handle the outcome of a command execution."""
         raise NotImplementedError(f"No handler implemented for {type(outcome)}")

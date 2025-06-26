@@ -1,17 +1,23 @@
 import functools
-from typing import Optional
+from typing import Optional, Any
 
-from ffutil.snify.catalog import Catalog
+from ffutil.snify.annotate import STeXAnnotateCommand
+from ffutil.snify.catalog import Catalog, Verbalization
 from ffutil.snify.document import STeXDocument, Document
 from ffutil.snify.local_stex_catalog import LocalStexSymbol, LocalStexVerbalization, local_flams_stex_catalogs
+from ffutil.snify.skip_and_ignore import SkipCommand
 from ffutil.snify.snifystate import SnifyState, SnifyCursor
 from ffutil.stepper.command import CommandCollection
 from ffutil.stepper.interface import interface
 from ffutil.stepper.stepper import Stepper, StopStepper
-from ffutil.stepper.stepper_extensions import QuittableStepper, QuitCommand
+from ffutil.stepper.stepper_extensions import QuittableStepper, QuitCommand, CursorModifyingStepper
 
 
-class SnifyStepper(QuittableStepper, Stepper[SnifyState]):
+class SnifyStepper(QuittableStepper, CursorModifyingStepper, Stepper[SnifyState]):
+    def __init__(self, state: SnifyState):
+        super().__init__(state)
+        self.state = state
+        self.current_annotation_choices: Optional[list[tuple[Any, Verbalization]]] = None
 
     @functools.cache
     def get_stex_catalogs(self) -> dict[str, Catalog[LocalStexSymbol, LocalStexVerbalization]]:
@@ -49,7 +55,7 @@ class SnifyStepper(QuittableStepper, Stepper[SnifyState]):
         if not isinstance(cursor.selection, int):   # we have a selection -> nothing to do
             return
 
-        while cursor.selection < len(self.state.documents):
+        while cursor.document_index < len(self.state.documents):
             doc = self.state.documents[cursor.document_index]
             print(f'Processing document {doc.identifier} at index {cursor.document_index}...')
             annotatable_segments = doc.get_annotatable_segments()
@@ -63,6 +69,9 @@ class SnifyStepper(QuittableStepper, Stepper[SnifyState]):
                 if segment.get_end_ref() <= cursor.selection:
                     continue  # segment is before cursor
 
+                if cursor.selection >= segment.get_start_ref():
+                    segment = segment[segment.get_indices_from_ref_range(cursor.selection, segment.get_end_ref())[0]:]
+
                 first_match = catalog.find_first_match(
                     string=str(segment),
                     stems_to_ignore=set(),
@@ -73,8 +82,9 @@ class SnifyStepper(QuittableStepper, Stepper[SnifyState]):
                 if first_match is None:
                     continue
 
-                start, stop, _ = first_match
+                start, stop, options = first_match
                 subsegment = segment[start:stop]
+                self.current_annotation_choices = options
                 self.state.cursor = SnifyCursor(
                     cursor.document_index,
                     selection=(subsegment.get_start_ref(), subsegment.get_end_ref())
@@ -85,7 +95,7 @@ class SnifyStepper(QuittableStepper, Stepper[SnifyState]):
             cursor = SnifyCursor(cursor.document_index + 1, 0)
 
         interface.clear()
-        interface.write_text('There is nothing left to annotate.')
+        interface.write_text('There is nothing left to annotate.\n')
         interface.await_confirmation()
         raise StopStepper('done')
 
@@ -108,6 +118,8 @@ class SnifyStepper(QuittableStepper, Stepper[SnifyState]):
         return CommandCollection(
             'snify',
             [
+                STeXAnnotateCommand(self.state, self.current_annotation_choices),
+                SkipCommand(self.state),
                 QuitCommand(),
             ],
             have_help=True
