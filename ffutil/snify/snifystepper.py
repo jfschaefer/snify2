@@ -4,12 +4,14 @@ from typing import Optional, Any
 from ffutil.snify.annotate import STeXAnnotateCommand
 from ffutil.snify.catalog import Catalog, Verbalization
 from ffutil.snify.document import STeXDocument, Document
-from ffutil.snify.local_stex_catalog import LocalStexSymbol, LocalStexVerbalization, local_flams_stex_catalogs
+from ffutil.snify.local_stex_catalog import LocalStexSymbol, LocalStexVerbalization, local_flams_stex_catalogs, \
+    LocalFlamsCatalog
 from ffutil.snify.skip_and_ignore import SkipCommand
+from ffutil.snify.snify_commands import SubstitutionOutcome, DocumentModification
 from ffutil.snify.snifystate import SnifyState, SnifyCursor
-from ffutil.stepper.command import CommandCollection
+from ffutil.stepper.command import CommandCollection, CommandOutcome
 from ffutil.stepper.interface import interface
-from ffutil.stepper.stepper import Stepper, StopStepper
+from ffutil.stepper.stepper import Stepper, StopStepper, Modification
 from ffutil.stepper.stepper_extensions import QuittableStepper, QuitCommand, CursorModifyingStepper
 
 
@@ -20,10 +22,10 @@ class SnifyStepper(QuittableStepper, CursorModifyingStepper, Stepper[SnifyState]
         self.current_annotation_choices: Optional[list[tuple[Any, Verbalization]]] = None
 
     @functools.cache
-    def get_stex_catalogs(self) -> dict[str, Catalog[LocalStexSymbol, LocalStexVerbalization]]:
+    def get_stex_catalogs(self) -> dict[str, LocalFlamsCatalog]:
         return local_flams_stex_catalogs()
 
-    def get_catalog_for_document(self, doc: Document) -> Optional[Catalog]:
+    def get_catalog_for_document(self, doc: Document) -> Optional[LocalFlamsCatalog]:
         error_message: Optional[str] = None
         catalog: Optional[Catalog] = None
 
@@ -48,6 +50,11 @@ class SnifyStepper(QuittableStepper, CursorModifyingStepper, Stepper[SnifyState]
             interface.write_text(error_message, style='error')
             interface.await_confirmation()
         return catalog
+
+    def get_catalog_for_current_document(self) -> Optional[LocalFlamsCatalog]:
+        """ Get the catalog for the currently selected document."""
+        doc = self.state.get_current_document()
+        return self.get_catalog_for_document(doc)
 
     def ensure_state_up_to_date(self):
         """ If cursor is a position, rather than a range, we updated it to the next relevant range."""
@@ -115,12 +122,26 @@ class SnifyStepper(QuittableStepper, CursorModifyingStepper, Stepper[SnifyState]
         interface.newline()
 
     def get_current_command_collection(self) -> CommandCollection:
+        catalog = self.get_catalog_for_current_document()
+        assert catalog is not None
         return CommandCollection(
             'snify',
             [
-                STeXAnnotateCommand(self.state, self.current_annotation_choices),
+                STeXAnnotateCommand(self.state, self.current_annotation_choices, catalog, self),
                 SkipCommand(self.state),
                 QuitCommand(),
             ],
             have_help=True
         )
+
+    def handle_command_outcome(self, outcome: CommandOutcome) -> Optional[Modification[SnifyState]]:
+        doc = self.state.get_current_document()
+
+        if isinstance(outcome, SubstitutionOutcome):
+            return DocumentModification(
+                doc,
+                old_text=doc.get_content(),
+                new_text=doc.get_content()[:outcome.start_pos] + outcome.new_str + doc.get_content()[outcome.end_pos:]
+            )
+
+        return super().handle_command_outcome(outcome)

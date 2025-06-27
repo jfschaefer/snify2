@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional, Iterable
 
 from ffutil.stex.flams import FLAMS
+from ffutil.utils.json_iter import json_iter
 
 
 class FlamsUri:
@@ -17,7 +18,9 @@ class FlamsUri:
     module: Optional[str] = None
     symbol: Optional[str] = None
 
-    def __init__(self, uri):
+    def __init__(self, uri: str):
+        if not isinstance(uri, str):
+            raise TypeError(f'Expected a string, got {type(uri)}')
         parts = uri.split("?")
         self.root = parts[0]
         if len(parts) == 1:
@@ -121,6 +124,33 @@ def _find_imports(module_annotation) -> Iterable[tuple[str, str]]:
             result = _find_imports(item)
             if result is not None:
                 yield from result
+
+
+def get_transitive_structs(structures: list[tuple[str, str]]) -> dict[str, str]:
+    """
+    given a list of (structure_uri, structure_path) pairs,
+    return a dictionary mapping structure URIs to their paths those structures and the ones they import transitively
+    (usemodules not included)
+    """
+    result: dict[str, str] = { uri: path for uri, path in structures }
+
+    def search(uri: str, path: str):
+        annos = FLAMS.get_file_annotations(path)
+
+        for j in json_iter(annos):
+            if isinstance(j, dict) and 'MathStructure' in j:
+                s = j['MathStructure']
+                if s['uri']['uri'] == uri:
+                    for ext0 in s.get('extends', []):
+                        for ext1 in ext0:
+                            if 'uri' in ext1 and ext1['uri'] not in result:
+                                result[ext1['uri']] = ext1['filepath']
+                                search(ext1['uri'], ext1['filepath'])
+
+    for uri, path in structures:
+        search(uri, path)
+
+    return result
 
 
 def get_transitive_imports(modules: list[tuple[str, str]]) -> dict[str, str]:

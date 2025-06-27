@@ -44,6 +44,7 @@ class Catalog(Generic[Symb, Verb]):
     lang: str
     trie: Trie[Symb, Verb]
     symb_to_verb: dict[Symb, list[Verb]]
+    symbols: set[Symb]
 
     def __init__(self, lang: str, symbverbs: Optional[Iterable[tuple[Symb, Verb]]] = None):
         self.lang = lang
@@ -53,10 +54,17 @@ class Catalog(Generic[Symb, Verb]):
             for symb, verb in symbverbs:
                 self.add_symbverb(symb, verb)
 
+    def symb_iter(self) -> Iterable[Symb]:
+        yield from self.symb_to_verb.keys()
+
     def add_symbverb(self, symb: Symb, verb: Verb):
         self.symb_to_verb.setdefault(symb, []).append(verb)
         key = string_to_stemmed_word_sequence_simplified(verb.verb, self.lang)
         self.trie.insert(key, symb, verb)
+
+    def add_symb(self, symb: Symb):
+        """ Add a symbol, that may not have a verbalization. """
+        self.symb_to_verb.setdefault(symb, [])
 
     def find_first_match(
             self,
@@ -119,10 +127,13 @@ class Catalog(Generic[Symb, Verb]):
 
 def catalogs_from_stream(
         stream: Iterable[tuple[str, Symb, Verb]],
+        symbols: Iterable[Symb] = (),
     ) -> dict[str, Catalog[Symb, Verb]]:
     catalogs: dict[str, Catalog[Symb, Verb]] = {}
     for lang, symb, verb in stream:
         if lang not in catalogs:
             catalogs[lang] = Catalog[Symb, Verb](lang)
+            for symbol in symbols:
+                catalogs[lang].add_symb(symbol)
         catalogs[lang].add_symbverb(symb, verb)
     return catalogs

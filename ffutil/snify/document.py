@@ -7,6 +7,7 @@ from pylatexenc.latexwalker import LatexWalker
 
 from ffutil.snify.local_stex import lang_from_path
 from ffutil.snify.stex_py_parsing import STEX_CONTEXT_DB, get_annotatable_plaintext
+from ffutil.stex.flams import FLAMS
 from ffutil.utils.linked_str import LinkedStr
 
 
@@ -18,6 +19,10 @@ class Document(abc.ABC):
 
     @abc.abstractmethod
     def get_content(self) -> str:
+        pass
+
+    @abc.abstractmethod
+    def set_content(self, content: str):
         pass
 
     @abc.abstractmethod
@@ -48,6 +53,12 @@ class STeXDocument(Document):
         if self._content is None:
             self._content = self.path.read_text()
         return self._content
+
+    def set_content(self, content: str):
+        self.write_content(content)
+        self._latex_walker = None
+        FLAMS.load_file(self.identifier)
+
 
     def get_latex_walker(self) -> LatexWalker:
         """ Returns a LatexWalker for the document content. """

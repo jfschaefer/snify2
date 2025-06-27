@@ -20,3 +20,12 @@ class SnifyState(State[SnifyCursor]):
         if not self.documents:
             raise ValueError("No documents available.")
         return self.documents[self.cursor.document_index]
+
+    def get_selected_text(self) -> str:
+        document = self.get_current_document()
+        selection = self.cursor.selection
+        if isinstance(selection, tuple):
+            start, end = selection
+            return document.get_content()[start:end]
+        else:
+            raise Exception("Selection is not a range; cannot get selected text.")

@@ -57,16 +57,20 @@ class LocalStexVerbalization(Verbalization):
 RawVerbEntry: TypeAlias = tuple[str, str, str, str, int, int]
 
 
-def _verb_extraction(j, opened_file: OpenedStexFLAMSFile) -> Iterable[RawVerbEntry]:
+def _verb_and_symb_extraction(j, opened_file: OpenedStexFLAMSFile) -> Iterable[RawVerbEntry | str]:
     """ recurse through the annotation json to find symrefs and co.
-    This code deserves heavy optimization,
-    which explains why it is somewhat messy. """
+    It yields verbalizations (RawVerbEntry) and symbols (str) if they are defined/declared.
+    """
     if isinstance(j, dict):
         for k, v in j.items():
             # TODO: add more keys to filter (optimization)
             if k in {'full_range', 'val_range', 'key_range', 'Sig', 'smodule_range', 'Title', 'path_range',
                      'archive_range', 'UseModule'}:
                 continue
+            if k in {'Symdef', 'Symdecl'}:
+                yield v['uri']['uri']
+            if k in {'MathStructure'}:
+                yield v['uri']['uri']
             if k in {'Symref', 'SymName'}:
                 # symbol = _get_symbol(v['uri'][0]['uri'], v['uri'][0]['filepath'])
                 if k == 'Symref':
@@ -94,11 +98,11 @@ def _verb_extraction(j, opened_file: OpenedStexFLAMSFile) -> Iterable[RawVerbEnt
                 )
                 continue
 
-            yield from _verb_extraction(v, opened_file)
+            yield from _verb_and_symb_extraction(v, opened_file)
 
     elif isinstance(j, list):
         for item in j:
-            yield from _verb_extraction(item, opened_file)
+            yield from _verb_and_symb_extraction(item, opened_file)
 
 
 CACHE_FILE = CACHE_DIR / 'local_stex_catalog.json.gz'
@@ -115,8 +119,10 @@ CACHE_FILE = CACHE_DIR / 'local_stex_catalog.json.gz'
 #
 #         yield from _verb_extraction(annos, VerbExtractionCtx(path, OpenedFile(path)))
 
+LocalFlamsCatalog: TypeAlias = Catalog[LocalStexSymbol, LocalStexVerbalization]
 
-def local_flams_stex_catalogs() -> dict[str, Catalog[LocalStexSymbol, LocalStexVerbalization]]:
+
+def local_flams_stex_catalogs() -> dict[str, LocalFlamsCatalog]:
     if CACHE_FILE.exists():
         # load json from cache
         with gzip.open(CACHE_FILE) as f:
@@ -143,9 +149,11 @@ def local_flams_stex_catalogs() -> dict[str, Catalog[LocalStexSymbol, LocalStexV
     with timelogger(logger, 'Extracting local sTeX verbalizations with FLAMS'):
         for path in todo_list:
             annos = FLAMS.get_file_annotations(path)
+            verbs_and_symbols = _verb_and_symb_extraction(annos, OpenedStexFLAMSFile(path))
             cache[path] = {
                 'last_modified': os.stat(path).st_mtime,
-                'verbs': list(_verb_extraction(annos, OpenedStexFLAMSFile(path)))
+                'verbs': [entry for entry in verbs_and_symbols if isinstance(entry, tuple)],
+                'symbols': [symbol for symbol in verbs_and_symbols if isinstance(entry, str)],
             }
 
     if deletions + len(todo_list) > 100:
@@ -164,9 +172,16 @@ def local_flams_stex_catalogs() -> dict[str, Catalog[LocalStexSymbol, LocalStexV
 
     with timelogger(logger, 'Building catalogs'):
         return catalogs_from_stream(
-            (lang, get_symbol(uri, path), LocalStexVerbalization(verb, path, (start, end)))
-            for path, entry in cache.items()
-            for lang, uri, path, verb, start, end in entry['verbs']
+            (
+                (lang, get_symbol(uri, path), LocalStexVerbalization(verb, path, (start, end)))
+                for path, entry in cache.items()
+                for lang, uri, path, verb, start, end in entry['verbs']
+            ),
+            (
+                symb
+                for entry in cache.values()
+                for symb in entry['symbols']
+            )
         )
 
 
