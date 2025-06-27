@@ -62,6 +62,10 @@ class interface:
         actual_interface.write_text(text, style=style, prestyled=prestyled)
 
     @staticmethod
+    def apply_style(text: str, style: str) -> str:
+        return actual_interface.apply_style(text, style=style)
+
+    @staticmethod
     def get_input() -> str:
         return actual_interface.get_input()
 
@@ -116,6 +120,9 @@ class Interface(ABC):
     def write_text(self, text: str, style: str = 'default', *, prestyled: bool = False):
         pass
 
+    def apply_style(self, text: str, style: str) -> str:
+        return text
+
     @abstractmethod
     def get_input(self) -> str:
         pass
@@ -133,7 +140,7 @@ class Interface(ABC):
     def write_command_info(self, key: str, description: str):
         self.write_text('  ')
         self.write_text(f'[{key}]', style='bold')
-        self.write_text(description.replace('\n', '\n' + ' ' * (len(key) + 4)))
+        self.write_text(description.replace('\n', '\n' + ' ' * (len(key) + 4)), prestyled=True)
         self.newline()
 
     def write_statistics(self, text: str):
@@ -269,23 +276,36 @@ class ConsoleInterface(Interface):
         bold = False
         italics = False
         strikethrough = False
-        bg = c(None, (0, 0, 0), None, (255, 255, 255))
-        fg = c(None, (255, 255, 255), None, (0, 0, 0))
+        default_bg = c(None, (0, 0, 0), None, (255, 255, 255))
+        default_fg = c(None, (255, 255, 255), None, (0, 0, 0))
+        bg = default_bg
+        fg = default_fg
 
         if style == 'bold':
             bold = True
         elif style == 'error':
             bg = c('red', (255, 0, 0), 'bright_red', (255, 128, 128))
+        elif style == 'error-weak':
+            fg = c('bright_red', (255, 128, 128), 'red', (255, 0, 0))
+        elif style == 'success-weak':
+            fg = c('bright_green', (128, 255, 128), 'green', (0, 255, 0))
         elif style == 'warning':
             bg = c('yellow', (255, 255, 0), 'bright_yellow', (255, 255, 128))
         elif style == 'highlight':
             bg = c('yellow', (255, 255, 0), 'bright_yellow', (255, 255, 128))
         elif style == 'pale':
             fg = c('bright_black', (128, 128, 128), 'bright_black', (128, 128, 128))
+        elif style == 'highlight1':
+            bg = c('bright_green', (0, 255, 0), 'bright_green', (128, 255, 128))
+        elif style == 'highlight2':
+            bg = c('bright_cyan', (0, 255, 255), 'bright_cyan', (128, 255, 255))
+        elif style == 'highlight3':
+            bg = c('bright_blue', (0, 0, 255), 'bright_blue', (128, 128, 255))
         else:
             pass
 
-        return click.style(text, bg=bg, fg=fg, bold=bold, italic=italics, strikethrough=strikethrough)
+        return click.style(text, bg=bg, fg=fg, bold=bold, italic=italics, strikethrough=strikethrough) + \
+            click.style('', bg=default_bg, fg=default_fg, reset=False)
 
 
     def get_input(self) -> str:

@@ -91,13 +91,26 @@ class STeXAnnotateCommand(Command):
 
 
     def standard_display(self):
+        style = interface.apply_style
         for i, (symbol, verbalization) in enumerate(self.options):
             assert isinstance(symbol, LocalStexSymbol)
             module_uri_f = FlamsUri(symbol.uri)
             module_uri_f.symbol = None
             symbol_display = ' '
-            symbol_display += '✓' if str(module_uri_f) in self.importinfo.modules_in_scope else '✗'
-            symbol_display += ' ' + symbol.uri
+            symbol_display += (
+                style('✓', 'correct-weak')
+                if str(module_uri_f) in self.importinfo.modules_in_scope
+                else style('✗', 'error-weak')
+            )
+            uri = FlamsUri(symbol.uri)
+            symbol_display += (
+                ' ' +
+                style(uri.archive, 'highlight1') +
+                ' ' + uri.path + '?' +
+                style(uri.module, 'highlight2') +
+                '?' + style(uri.symbol, 'highlight3')
+            )
+
             interface.write_command_info(
                 str(i),
                 symbol_display
