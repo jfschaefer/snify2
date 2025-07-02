@@ -5,12 +5,13 @@ from typing import Optional, Literal, Iterable, Sequence, Any
 from pylatexenc.latexwalker import LatexEnvironmentNode
 
 from ffutil.snify.catalog import Verbalization
-from ffutil.snify.document import STeXDocument
-from ffutil.snify.local_stex import OpenedStexFLAMSFile, get_transitive_imports, FlamsUri, get_transitive_structs
+from ffutil.stepper.document import STeXDocument
+from ffutil.stex.local_stex import OpenedStexFLAMSFile, get_transitive_imports, FlamsUri, get_transitive_structs
 from ffutil.snify.local_stex_catalog import LocalStexSymbol, LocalFlamsCatalog
-from ffutil.snify.snify_commands import ImportCommand, SubstitutionOutcome
+from ffutil.snify.snify_commands import ImportCommand
+from ffutil.stepper.document_stepper import SubstitutionOutcome
 from ffutil.snify.snifystate import SnifyState, SnifyCursor
-from ffutil.snify.stex_py_parsing import iterate_latex_nodes
+from ffutil.stex.stex_py_parsing import iterate_latex_nodes
 from ffutil.stepper.command import Command, CommandInfo, CommandOutcome, CommandCollection
 from ffutil.stepper.interface import interface
 from ffutil.stepper.stepper_extensions import QuitCommand, QuitOutcome, SetCursorOutcome
@@ -22,17 +23,14 @@ class AnnotationAborted(Exception):
     pass
 
 
-
-class STeXAnnotateCommand(Command):
+class STeXAnnotateBase(Command):
     def __init__(
             self,
             state: SnifyState,
-            options: list[tuple[LocalStexSymbol, Verbalization]],
             catalog: LocalFlamsCatalog,
             stepper,
     ):
         self.state = state
-        self.options = options
         self.catalog = catalog
         self.stepper = stepper
         document = state.get_current_document()
@@ -42,22 +40,8 @@ class STeXAnnotateCommand(Command):
             self.document,
             state.cursor.selection[0] if isinstance(state.cursor.selection, tuple) else state.cursor.selection,
         )
-        super().__init__(
-            CommandInfo(
-                pattern_presentation='𝑖',
-                pattern_regex='^[0-9]+$',
-                description_short=' annotate with 𝑖',
-                description_long='Annotates the current selection with option number 𝑖'
-            )
-        )
 
-    def execute(self, call: str) -> list[CommandOutcome]:
-        if int(call) >= len(self.options):
-            interface.write_text('Invalid annotation number', style='error')
-            interface.await_confirmation()
-            return []
-
-        symbol, verb = self.options[int(call)]
+    def annotate_symbol(self, symbol: LocalStexSymbol) -> list[CommandOutcome]:
         cursor = self.state.cursor
         outcomes: list[Any] = []
 
@@ -89,32 +73,6 @@ class STeXAnnotateCommand(Command):
 
         return outcomes
 
-
-    def standard_display(self):
-        style = interface.apply_style
-        for i, (symbol, verbalization) in enumerate(self.options):
-            assert isinstance(symbol, LocalStexSymbol)
-            module_uri_f = FlamsUri(symbol.uri)
-            module_uri_f.symbol = None
-            symbol_display = ' '
-            symbol_display += (
-                style('✓', 'correct-weak')
-                if str(module_uri_f) in self.importinfo.modules_in_scope
-                else style('✗', 'error-weak')
-            )
-            uri = FlamsUri(symbol.uri)
-            symbol_display += (
-                ' ' +
-                style(uri.archive, 'highlight1') +
-                ' ' + uri.path + '?' +
-                style(uri.module, 'highlight2') +
-                '?' + style(uri.symbol, 'highlight3')
-            )
-
-            interface.write_command_info(
-                str(i),
-                symbol_display
-            )
 
     def _symbname_unique(self, symbol: FlamsUri) -> bool:
         for s in self.catalog.symb_iter():
@@ -275,6 +233,64 @@ class STeXAnnotateCommand(Command):
 
 
 
+
+class STeXAnnotateCommand(STeXAnnotateBase, Command):
+    def __init__(
+            self,
+            state: SnifyState,
+            options: list[tuple[LocalStexSymbol, Verbalization]],
+            catalog: LocalFlamsCatalog,
+            stepper,
+    ):
+        self.options = options
+        STeXAnnotateBase.__init__(self, state, catalog, stepper)
+        Command.__init__(
+            self,
+            CommandInfo(
+                pattern_presentation='𝑖',
+                pattern_regex='^[0-9]+$',
+                description_short=' annotate with 𝑖',
+                description_long='Annotates the current selection with option number 𝑖'
+            )
+        )
+
+    def standard_display(self):
+        style = interface.apply_style
+        for i, (symbol, verbalization) in enumerate(self.options):
+            assert isinstance(symbol, LocalStexSymbol)
+            module_uri_f = FlamsUri(symbol.uri)
+            module_uri_f.symbol = None
+            symbol_display = ' '
+            symbol_display += (
+                style('✓', 'correct-weak')
+                if str(module_uri_f) in self.importinfo.modules_in_scope
+                else style('✗', 'error-weak')
+            )
+            uri = FlamsUri(symbol.uri)
+            symbol_display += (
+                    ' ' +
+                    style(uri.archive, 'highlight1') +
+                    ' ' + uri.path + '?' +
+                    style(uri.module, 'highlight2') +
+                    '?' + style(uri.symbol, 'highlight3')
+            )
+
+            interface.write_command_info(
+                str(i),
+                symbol_display
+            )
+
+
+    def execute(self, call: str) -> list[CommandOutcome]:
+        if int(call) >= len(self.options):
+            interface.write_text('Invalid annotation number', style='error')
+            interface.await_confirmation()
+            return []
+
+        symbol, _ = self.options[int(call)]
+        return self.annotate_symbol(symbol)
+
+
 @dataclasses.dataclass
 class _ImportInfo:
     modules_in_scope: set[str]
@@ -421,7 +437,7 @@ def get_modules_in_scope_and_import_locations(document: STeXDocument, offset: in
         modules_in_scope = set(get_transitive_imports(available_modules)),
         structs_in_scope = set(get_transitive_structs(available_structs)),
         top_use_pos = surrounding_envs[0].nodelist[0].pos if surrounding_envs else 0,
-        use_pos = use_env.nodelist[0].pos if use_env else None,
+        use_pos = use_env.nodelist[0].pos if use_env else 0,
         import_pos = module_env.nodelist[0].pos if module_env else None,
         use_env = use_env.environmentname if use_env else None,
         top_use_env = surrounding_envs[0].environmentname if surrounding_envs else None,

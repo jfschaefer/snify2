@@ -125,8 +125,7 @@ class CommandCollection:
             if re.match(command.command_info.pattern_regex, call):
                 return command.execute(call)
 
-        interface.write_text(f'Invalid command {call!r}', style='error')
-        interface.await_confirmation()
+        interface.admonition(f'Invalid command {call!r}', 'error', confirm=True)
         return []
 
     def _pure_commands(self) -> Iterable[Command]:

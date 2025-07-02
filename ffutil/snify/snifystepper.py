@@ -3,19 +3,23 @@ from typing import Optional, Any
 
 from ffutil.snify.annotate import STeXAnnotateCommand
 from ffutil.snify.catalog import Catalog, Verbalization
-from ffutil.snify.document import STeXDocument, Document
-from ffutil.snify.local_stex_catalog import LocalStexSymbol, LocalStexVerbalization, local_flams_stex_catalogs, \
+from ffutil.snify.local_stex_catalog import local_flams_stex_catalogs, \
     LocalFlamsCatalog
-from ffutil.snify.skip_and_ignore import SkipCommand
-from ffutil.snify.snify_commands import SubstitutionOutcome, DocumentModification
+from ffutil.snify.skip_and_ignore import SkipCommand, SkipUntilFileEnd, SkipForRestOfSession, IgnoreCommand, \
+    AddWordToSrSkip, AddStemToSrSkip
+from ffutil.snify.snify_commands import View_i_Command, ViewCommand, ExitFileCommand, RescanOutcome, StemFocusCommand, \
+    StemFocusCommandPlus
 from ffutil.snify.snifystate import SnifyState, SnifyCursor
-from ffutil.stepper.command import CommandCollection, CommandOutcome
+from ffutil.stepper.command import CommandCollection, CommandSectionLabel, CommandOutcome
+from ffutil.stepper.document import STeXDocument, Document
+from ffutil.stepper.document_stepper import DocumentModifyingStepper
 from ffutil.stepper.interface import interface
 from ffutil.stepper.stepper import Stepper, StopStepper, Modification
-from ffutil.stepper.stepper_extensions import QuittableStepper, QuitCommand, CursorModifyingStepper
+from ffutil.stepper.stepper_extensions import QuittableStepper, QuitCommand, CursorModifyingStepper, UndoCommand, \
+    RedoCommand, UndoableStepper
 
 
-class SnifyStepper(QuittableStepper, CursorModifyingStepper, Stepper[SnifyState]):
+class SnifyStepper(DocumentModifyingStepper, QuittableStepper, CursorModifyingStepper, UndoableStepper, Stepper[SnifyState]):
     def __init__(self, state: SnifyState):
         super().__init__(state)
         self.state = state
@@ -49,6 +53,8 @@ class SnifyStepper(QuittableStepper, CursorModifyingStepper, Stepper[SnifyState]
         if error_message:
             interface.write_text(error_message, style='error')
             interface.await_confirmation()
+        if self.state.stem_focus:
+            catalog = catalog.sub_catalog_for_stem(self.state.stem_focus)
         return catalog
 
     def get_catalog_for_current_document(self) -> Optional[LocalFlamsCatalog]:
@@ -59,13 +65,35 @@ class SnifyStepper(QuittableStepper, CursorModifyingStepper, Stepper[SnifyState]
     def ensure_state_up_to_date(self):
         """ If cursor is a position, rather than a range, we updated it to the next relevant range."""
         cursor = self.state.cursor
-        if not isinstance(cursor.selection, int):   # we have a selection -> nothing to do
+
+        if not isinstance(cursor.selection, int):   # already have a selection
+            # The selection can be modified in lots of ways (e.g. undoing/redoing).
+            # So we need to ensure that the annotation choices are up to date.
+            # TODO: This is a bit annoying and repetitive - is there a better way?
+            doc = self.state.documents[cursor.document_index]
+            catalog = self.get_catalog_for_document(doc)
+            first_match = catalog.find_first_match(
+                string=doc.get_content()[cursor.selection[0]:cursor.selection[1]],
+                stems_to_ignore=self.state.get_skip_stems(doc.language, cursor.document_index),
+                words_to_ignore=self.state.get_skip_words(doc.language, cursor.document_index),
+                symbols_to_ignore=set(),
+            )
+            if first_match is None:
+                self.current_annotation_choices = []
+            else:
+                start, stop, options = first_match
+                self.current_annotation_choices = options
             return
 
         while cursor.document_index < len(self.state.documents):
             doc = self.state.documents[cursor.document_index]
+            if self.state.focus_lang is not None and doc.language != self.state.focus_lang:
+                # document has wrong language
+                cursor = SnifyCursor(cursor.document_index + 1, 0)
+                continue
+
             print(f'Processing document {doc.identifier} at index {cursor.document_index}...')
-            annotatable_segments = doc.get_annotatable_segments()
+            annotatable_segments = doc.get_annotatable_plaintext()
 
             catalog = self.get_catalog_for_document(doc)
             if catalog is None:
@@ -81,8 +109,8 @@ class SnifyStepper(QuittableStepper, CursorModifyingStepper, Stepper[SnifyState]
 
                 first_match = catalog.find_first_match(
                     string=str(segment),
-                    stems_to_ignore=set(),
-                    words_to_ignore=set(),
+                    stems_to_ignore=self.state.get_skip_stems(doc.language, cursor.document_index),
+                    words_to_ignore=self.state.get_skip_words(doc.language, cursor.document_index),
                     symbols_to_ignore=set(),
                 )
 
@@ -103,8 +131,14 @@ class SnifyStepper(QuittableStepper, CursorModifyingStepper, Stepper[SnifyState]
 
         interface.clear()
         interface.write_text('There is nothing left to annotate.\n')
-        interface.await_confirmation()
-        raise StopStepper('done')
+        if self.state.on_unfocus:
+            interface.write_text('Ending focus mode.\n')
+            interface.await_confirmation()
+            self.state = self.state.on_unfocus
+        else:
+            interface.write_text('Quitting snify.\n')
+            interface.await_confirmation()
+            raise StopStepper('done')
 
 
     def show_current_state(self):
@@ -123,25 +157,42 @@ class SnifyStepper(QuittableStepper, CursorModifyingStepper, Stepper[SnifyState]
 
     def get_current_command_collection(self) -> CommandCollection:
         catalog = self.get_catalog_for_current_document()
+        document = self.state.get_current_document()
         assert catalog is not None
         return CommandCollection(
             'snify',
             [
-                STeXAnnotateCommand(self.state, self.current_annotation_choices, catalog, self),
-                SkipCommand(self.state),
                 QuitCommand(),
+                ExitFileCommand(self.state),
+                UndoCommand(is_possible=bool(self.modification_history)),
+                RedoCommand(is_possible=bool(self.modification_future)),
+
+                CommandSectionLabel('\nAnnotation'),
+                STeXAnnotateCommand(self.state, self.current_annotation_choices, catalog, self),
+
+                CommandSectionLabel('\nSkipping'),
+                SkipCommand(self.state),
+                SkipUntilFileEnd(self.state),
+                SkipForRestOfSession(self.state),
+                IgnoreCommand(self.state),
+                AddWordToSrSkip(self.state),
+                AddStemToSrSkip(self.state),
+
+                CommandSectionLabel('\nFocussing'),
+                StemFocusCommand(self),
+                StemFocusCommandPlus(self),
+
+                CommandSectionLabel('\nViewing and editing'),
+                ViewCommand(document),
+                View_i_Command(self.current_annotation_choices),
             ],
             have_help=True
         )
 
-    def handle_command_outcome(self, outcome: CommandOutcome) -> Optional[Modification[SnifyState]]:
-        doc = self.state.get_current_document()
-
-        if isinstance(outcome, SubstitutionOutcome):
-            return DocumentModification(
-                doc,
-                old_text=doc.get_content(),
-                new_text=doc.get_content()[:outcome.start_pos] + outcome.new_str + doc.get_content()[outcome.end_pos:]
-            )
+    def handle_command_outcome(self, outcome: CommandOutcome) -> Optional[Modification]:
+        if isinstance(outcome, RescanOutcome):
+            self.get_stex_catalogs.cache_clear()
+            return None
 
         return super().handle_command_outcome(outcome)
+

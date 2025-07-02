@@ -16,7 +16,7 @@ import orjson
 
 from ffutil.config import CACHE_DIR
 from ffutil.snify.catalog import Verbalization, Catalog, catalogs_from_stream
-from ffutil.snify.local_stex import OpenedStexFLAMSFile, lang_from_path
+from ffutil.stex.local_stex import OpenedStexFLAMSFile, lang_from_path
 from ffutil.stex.flams import FLAMS
 from ffutil.utils.timer import timelogger
 

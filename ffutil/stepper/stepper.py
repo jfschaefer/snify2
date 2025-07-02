@@ -93,4 +93,6 @@ class Stepper(ABC, Generic[StateType]):
 
     def handle_command_outcome(self, outcome: CommandOutcome) -> Optional[Modification[StateType]]:
         """Handle the outcome of a command execution."""
+        if isinstance(outcome, Modification):   # some command outcomes are also modifications
+            return outcome
         raise NotImplementedError(f"No handler implemented for {type(outcome)}")

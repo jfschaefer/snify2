@@ -7,11 +7,12 @@ logger = logging.getLogger(__name__)
 
 
 CACHE_DIR = Path('~/.cache/stextools').expanduser()
+CONFIG_DIR = Path('~/.config/stextools').expanduser()
 
 
 @functools.cache
 def get_config() -> configparser.ConfigParser:
-    config_path = Path('~/.config/stextools/config.ini').expanduser()
+    config_path = CONFIG_DIR / 'config.ini'
     config = configparser.ConfigParser()
     if config_path.exists():
         logger.info(f'Loading config from {config_path}')

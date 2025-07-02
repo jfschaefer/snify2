@@ -66,6 +66,16 @@ class Catalog(Generic[Symb, Verb]):
         """ Add a symbol, that may not have a verbalization. """
         self.symb_to_verb.setdefault(symb, [])
 
+    def sub_catalog_for_stem(self, stem: str) -> 'Catalog[Symb, Verb]':
+        """ Returns a sub-catalog that only contains verbalizations for the given stem. """
+        stem_seq = string_to_stemmed_word_sequence_simplified(stem, self.lang)
+        remaining: list[tuple[str, Symb, Verb]] = []
+        result = self.trie.get(stem_seq)
+        for symb, verbs in result.items():
+            for verb in verbs:
+                remaining.append((self.lang, symb, verb))
+        return catalogs_from_stream(remaining).get(self.lang, Catalog(self.lang))
+
     def find_first_match(
             self,
             string: str,

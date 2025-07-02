@@ -1,20 +1,57 @@
 import dataclasses
+from typing import Optional
 
-from ffutil.snify.document import Document
+from ffutil.stepper.document import Document
+from ffutil.stepper.document_stepper import DocumentStepperState, DocumentCursor
 from ffutil.stepper.stepper import State
+from ffutil.stepper.stepper_extensions import FocussableState
 
 
 @dataclasses.dataclass(frozen=True)
-class SnifyCursor:
-    document_index: int
+class SnifyCursor(DocumentCursor):
     selection: int | tuple[int, int]
 
 
-
-class SnifyState(State[SnifyCursor]):
+class SnifyState(DocumentStepperState, FocussableState, State[SnifyCursor]):
     def __init__(self, cursor: SnifyCursor, documents: list[Document]):
-        super().__init__(cursor)
-        self.documents = documents
+        super().__init__(cursor, documents)
+
+        # (lang, doc_id) -> [word]
+        self.skip_stem_by_docid: dict[tuple[str, int], set[str]] = {}
+        self.skip_by_docid: dict[tuple[str, int], set[str]] = {}
+        # lang -> [word]
+        self.skip_stem: dict[str, set[str]] = {}
+        self.skip: dict[str, set[str]] = {}
+
+        self.stem_focus: Optional[str] = None   # only suggest annotations for this stem (used in focus mode)
+        self.focus_lang: Optional[str] = None  # only annotate documents of this language (used in focus mode)
+
+    def get_skip_words(self, lang: str, doc_index: Optional[int] = None):
+        from ffutil.snify.skip_and_ignore import get_srskipped_cached, IgnoreList
+
+        tmp_skip = self.skip.get(lang, set())
+        tmp_doc_skip = self.skip_by_docid.get((lang, doc_index), set()) if doc_index is not None else set()
+        srskipped = get_srskipped_cached(self.get_current_document().get_content()).skipped_literal
+        return (
+            tmp_skip
+            | tmp_doc_skip
+            | srskipped
+            | IgnoreList.get_word_set(lang)
+        )
+
+
+    def get_skip_stems(self, lang: str, doc_index: Optional[int] = None):
+        from ffutil.snify.skip_and_ignore import get_srskipped_cached
+
+        tmp_skip = self.skip_stem.get(lang, set())
+        tmp_doc_skip = self.skip_stem_by_docid.get((lang, doc_index), set()) if doc_index is not None else set()
+        srskipped = get_srskipped_cached(self.get_current_document().get_content()).skipped_stems
+        return (
+            tmp_skip
+            | tmp_doc_skip
+            | srskipped
+        )
+
 
     def get_current_document(self) -> Document:
         if not self.documents:

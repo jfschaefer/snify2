@@ -5,8 +5,8 @@ from typing import Iterable, Optional
 
 from pylatexenc.latexwalker import LatexWalker
 
-from ffutil.snify.local_stex import lang_from_path
-from ffutil.snify.stex_py_parsing import STEX_CONTEXT_DB, get_annotatable_plaintext
+from ffutil.stex.local_stex import lang_from_path
+from ffutil.stex.stex_py_parsing import STEX_CONTEXT_DB, get_annotatable_plaintext
 from ffutil.stex.flams import FLAMS
 from ffutil.utils.linked_str import LinkedStr
 
@@ -25,9 +25,8 @@ class Document(abc.ABC):
     def set_content(self, content: str):
         pass
 
-    @abc.abstractmethod
-    def get_annotatable_segments(self) -> Iterable[LinkedStr[None]]:
-        pass
+    def get_annotatable_plaintext(self) -> Iterable[LinkedStr[None]]:
+        raise NotImplementedError()
 
     def get_inputted_documents(self) -> Iterable['Document']:
         r""" Returns the documents that were inputted to this document.
@@ -73,7 +72,7 @@ class STeXDocument(Document):
         self._content = content
         self._latex_walker = None
 
-    def get_annotatable_segments(self) -> Iterable[LinkedStr[None]]:
+    def get_annotatable_plaintext(self) -> Iterable[LinkedStr[None]]:
         return get_annotatable_plaintext(
             self.get_latex_walker()
         )

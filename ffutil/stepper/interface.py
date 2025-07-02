@@ -2,15 +2,20 @@
 User interfaces for the stepper module.
 """
 import dataclasses
+import functools
+import shutil
+import subprocess
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
-from typing import Literal, Optional, TypeAlias, Callable
+from typing import Literal, Optional, TypeAlias, Callable, Any
 
 import click
 from pygments import highlight
 from pygments.formatters.terminal import TerminalFormatter
 from pygments.formatters.terminal256 import TerminalTrueColorFormatter
 from pygments.lexers.markup import TexLexer, MarkdownLexer
+
+from ffutil.config import get_config
 
 _Color: TypeAlias = str | tuple[int, int, int]
 
@@ -90,6 +95,14 @@ class interface:
         actual_interface.await_confirmation()
 
     @staticmethod
+    def admonition(text: str, type: Literal['error', 'warning', 'info'], confirm: bool):
+        actual_interface.admonition(text, type=type, confirm=confirm)
+
+    @staticmethod
+    def list_search(items: dict[str, Any] | list[str]) -> Optional[Any]:
+        actual_interface.list_search(items)
+
+    @staticmethod
     def show_code(
             code: str,
             format: Optional[Literal['tex', 'sTeX', 'myst']] = None,
@@ -120,12 +133,55 @@ class Interface(ABC):
     def write_text(self, text: str, style: str = 'default', *, prestyled: bool = False):
         pass
 
+    def list_search(self, items: dict[str, Any] | list[str]) -> Optional[Any]:
+        """
+        Displays the items in a searchable list and returns the selected item.
+        If the items are a dictionary, the keys are displayed,
+        and the value corresponding to the selected key is returned.
+        """
+        # simple default implementation
+
+        if isinstance(items, list):
+            items = {s: s for s in items}
+
+        self.clear()
+        self.write_header('Search')
+        for i, key in enumerate(items):
+            self.write_text(f'[{i}] {key}\n', style='bold')
+            self.newline()
+        while True:
+            self.write_text('Enter the number of the item you want to select (empty string to abort): ',
+                            style='default')
+            number = self.get_input().strip()
+            if not number:
+                return None
+            if number.isdigit() and int(number) in range(len(items)):
+                return items[list(items.keys())[int(number)]]
+            self.write_text(f'Invalid number: {number!r}. Please try again.\n', style='error')
+
+
     def apply_style(self, text: str, style: str) -> str:
         return text
 
     @abstractmethod
     def get_input(self) -> str:
         pass
+
+    def admonition(self, text: str, type: Literal['error', 'warning', 'info'], confirm: bool):
+        style = {
+            'error': 'error',
+            'warning': 'warning',
+            'info': 'default',
+        }[type]
+        self.write_header(
+            type.capitalize(),
+            style=style,   # type: ignore
+        )
+        if not text.endswith('\n'):
+            text += '\n'
+        self.write_text(text, style=style + ('-weak' if style in {'error', 'warning'} else ''))
+        if confirm:
+            self.await_confirmation()
 
     def newline(self):
         self.write_text('\n')
@@ -241,6 +297,54 @@ class ConsoleInterface(Interface):
     def clear(self) -> None:
         click.clear()
 
+    @functools.cache
+    def get_fzf_path(self) -> Optional[str]:
+        fzf_path = get_config().get('stextools', 'fzf_path', fallback=shutil.which('fzf'))
+        if fzf_path is None:
+            self.admonition('fzf not found', 'error', confirm=False)
+            self.write_text('''
+This feature works best with the fzf tool.
+You install it via your package manager, e.g.:
+  sudo apt install fzf
+  sudo pacman -S fzf
+  brew install fzf
+For more information, see https://github.com/junegunn/fzf?tab=readme-ov-file#installation
+
+You can also place the fzf binary in your PATH.
+Download: https://github.com/junegunn/fzf/releases
+
+For now, I'll continue without fzf.
+''')
+            self.await_confirmation()
+        return fzf_path
+
+    def list_search(self, items: dict[str, Any] | list[str]) -> Optional[Any]:
+        fzf_path = self.get_fzf_path()
+
+        if not fzf_path:
+            return super().list_search(items)
+
+        if isinstance(items, list):
+            items = {s: s for s in items}
+
+
+        proc = subprocess.Popen([fzf_path, '--ansi'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        assert proc.stdin is not None
+        proc.stdin.write('\n'.join(items.keys()))
+        proc.stdin.close()
+        assert proc.stdout is not None
+        selected = proc.stdout.read().strip()
+        proc.wait()
+        if not selected:
+            return None
+        return items[selected]
+
+
+
+
+    def width(self):
+        return shutil.get_terminal_size().columns
+
     @contextmanager
     def big_infopage(self):
         if self._in_big_infopage:
@@ -261,6 +365,19 @@ class ConsoleInterface(Interface):
         if not prestyled:
             text = self.apply_style(text, style)
         self._write_styled(text)
+
+    def write_header(
+            self, text: str, style: Literal['default', 'error', 'warning', 'subdialog', 'section'] = 'default'
+    ):
+        style = {
+            'default': 'highlight1',
+            'error': 'error',
+            'warning': 'warning',
+            'subdialog': 'bold',
+            'section': 'bold',
+        }[style]
+        self.write_text(f'{text:^{self.width()}}', style=style)
+        self.newline()
 
     def apply_style(self, text: str, style: str) -> str:
         def c(
