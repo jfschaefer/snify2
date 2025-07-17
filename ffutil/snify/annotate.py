@@ -267,13 +267,7 @@ class STeXAnnotateCommand(STeXAnnotateBase, Command):
                 else style('✗', 'error-weak')
             )
             uri = FlamsUri(symbol.uri)
-            symbol_display += (
-                    ' ' +
-                    style(uri.archive, 'highlight1') +
-                    ' ' + uri.path + '?' +
-                    style(uri.module, 'highlight2') +
-                    '?' + style(uri.symbol, 'highlight3')
-            )
+            symbol_display += ' ' + stex_symbol_style(uri)
 
             interface.write_command_info(
                 str(i),
@@ -289,6 +283,49 @@ class STeXAnnotateCommand(STeXAnnotateBase, Command):
 
         symbol, _ = self.options[int(call)]
         return self.annotate_symbol(symbol)
+
+
+def stex_symbol_style(uri: FlamsUri) -> str:
+    style = interface.apply_style
+    return (
+        style(uri.archive, 'highlight1') +
+        ' ' + uri.path + '?' +
+        style(uri.module, 'highlight2') +
+        '?' + style(uri.symbol, 'highlight3')
+    )
+
+
+class STeXLookupCommand(STeXAnnotateBase, Command):
+    def __init__(
+                self,
+                state: SnifyState,
+                catalog: LocalFlamsCatalog,
+                stepper,
+        ):
+            STeXAnnotateBase.__init__(self, state, catalog, stepper)
+
+            Command.__init__(self, CommandInfo(
+                show=False,
+                pattern_presentation='l',
+                description_short='ookup a symbol',
+                description_long='Look up a symbol for annotation'
+            ))
+            self.state = state
+
+    def execute(self, call: str) -> list[CommandOutcome]:
+        cursor = self.state.cursor
+        # filter_fun = make_filter_fun(state.filter_pattern, state.ignore_pattern)
+
+        symbol = interface.list_search(
+            {
+                stex_symbol_style(FlamsUri(symbol.uri)) : symbol
+                for symbol in self.catalog.symb_iter()
+            }
+        )
+
+        return self.annotate_symbol(symbol) if symbol else []
+
+
 
 
 @dataclasses.dataclass

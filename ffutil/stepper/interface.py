@@ -100,7 +100,11 @@ class interface:
 
     @staticmethod
     def list_search(items: dict[str, Any] | list[str]) -> Optional[Any]:
-        actual_interface.list_search(items)
+        return actual_interface.list_search(items)
+
+    @staticmethod
+    def ask_yes_no(message: Optional[str] = None) -> bool:
+        return actual_interface.ask_yes_no(message)
 
     @staticmethod
     def show_code(
@@ -132,6 +136,7 @@ class Interface(ABC):
     @abstractmethod
     def write_text(self, text: str, style: str = 'default', *, prestyled: bool = False):
         pass
+
 
     def list_search(self, items: dict[str, Any] | list[str]) -> Optional[Any]:
         """
@@ -202,6 +207,16 @@ class Interface(ABC):
     def write_statistics(self, text: str):
         self.write_text(text, style='pale')
         self.newline()
+
+    def ask_yes_no(self, message: Optional[str] = None) -> bool:
+        if message:
+            self.write_text(message, style='default')
+        self.write_text(' (y/n): ', style='bold')
+        result = self.get_input().strip().lower()
+        while result not in {'y', 'n'}:
+            self.write_text('Please answer with "y" or "n": ', style='error')
+            result = self.get_input().strip().lower()
+        return result == 'y'
 
     def await_confirmation(self):
         self.write_text('Press Enter to continue...', style='default')
@@ -297,29 +312,8 @@ class ConsoleInterface(Interface):
     def clear(self) -> None:
         click.clear()
 
-    @functools.cache
-    def get_fzf_path(self) -> Optional[str]:
-        fzf_path = get_config().get('stextools', 'fzf_path', fallback=shutil.which('fzf'))
-        if fzf_path is None:
-            self.admonition('fzf not found', 'error', confirm=False)
-            self.write_text('''
-This feature works best with the fzf tool.
-You install it via your package manager, e.g.:
-  sudo apt install fzf
-  sudo pacman -S fzf
-  brew install fzf
-For more information, see https://github.com/junegunn/fzf?tab=readme-ov-file#installation
-
-You can also place the fzf binary in your PATH.
-Download: https://github.com/junegunn/fzf/releases
-
-For now, I'll continue without fzf.
-''')
-            self.await_confirmation()
-        return fzf_path
-
     def list_search(self, items: dict[str, Any] | list[str]) -> Optional[Any]:
-        fzf_path = self.get_fzf_path()
+        fzf_path = get_fzf_path()
 
         if not fzf_path:
             return super().list_search(items)
@@ -337,7 +331,11 @@ For now, I'll continue without fzf.
         proc.wait()
         if not selected:
             return None
-        return items[selected]
+        lookup = {
+            click.unstyle(key): value
+            for key, value in items.items()
+        }  # ansi codes are apparently stripped in the fzf output
+        return lookup[selected]
 
 
 
@@ -467,6 +465,27 @@ For now, I'll continue without fzf.
     def await_confirmation(self):
         self.write_text('Press Enter to continue...', style='default')
         input()   # get_input doesn't work for empty input
+
+@functools.cache
+def get_fzf_path() -> Optional[str]:
+    fzf_path = get_config().get('stextools', 'fzf_path', fallback=shutil.which('fzf'))
+    if fzf_path is None:
+        interface.admonition('fzf not found', 'error', confirm=False)
+        interface.write_text('''
+This feature works best with the fzf tool.
+You install it via your package manager, e.g.:
+sudo apt install fzf
+sudo pacman -S fzf
+brew install fzf
+For more information, see https://github.com/junegunn/fzf?tab=readme-ov-file#installation
+
+You can also place the fzf binary in your PATH.
+Download: https://github.com/junegunn/fzf/releases
+
+For now, I'll continue without fzf.
+''')
+        interface.await_confirmation()
+    return fzf_path
 
 
 

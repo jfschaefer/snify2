@@ -2,14 +2,14 @@
 Code for parsing sTeX files.
 This is not based on FLAMS (FLAMS only extracts annotations, and we need the informal content as well).
 """
-from typing import Iterable
+from typing import Iterable, Optional
 
 from pylatexenc.latexwalker import get_default_latex_context_db, LatexWalker, LatexMathNode, LatexCommentNode, \
     LatexSpecialsNode, LatexMacroNode, LatexEnvironmentNode, LatexGroupNode, LatexCharsNode, LatexNode
-from pylatexenc.macrospec import MacroSpec, std_environment, VerbatimArgsParser
+from pylatexenc.macrospec import MacroSpec, std_environment, VerbatimArgsParser, ParsedMacroArgs
 
 from ffutil.stepper.interface import interface
-from ffutil.utils.linked_str import LinkedStr, string_to_lstr
+from ffutil.utils.linked_str import LinkedStr, string_to_lstr, fixed_range_lstr, concatenate_lstrs
 
 STEX_MACRO_SPECS: list = [
     # from section 3.5 of the stex manual (targets modules)
@@ -106,6 +106,78 @@ except AttributeError:   # freeze is only available in newer pylatexenc versions
     pass
 
 
+#############
+# UTILITIES FOR MACRO ARGUMENTS
+#############
+
+
+class OptArgKeyVals:
+    """ A class to represent optional arguments with key-value pairs in LaTeX.
+        Note: at the moment it's a relatively hacky implementation that does not support changing values.
+        This might have to be changed in the future.
+    """
+
+    def __init__(self, nodelist: list[LatexNode]):
+        self.nodelist = nodelist
+        self._keyvals: dict[str, str] = {}
+
+        current_key: str = ''
+        looking_for_val: bool = False
+        current_val: str = ''
+        # TODO: the following could also track the source refs to enable edits in the source
+        for node in self.nodelist:
+            if isinstance(node, LatexCharsNode):
+                remainder = node.chars
+                while remainder:
+                    if looking_for_val:
+                        if ',' in remainder:
+                            valrest, _, remainder = remainder.partition(',')
+                            current_val += valrest
+                            self._keyvals[current_key.strip()] = current_val.strip()
+                            current_key = ''
+                            current_val = ''
+                            looking_for_val = False
+                        else:
+                            current_val += remainder
+                            remainder = None
+                    else:
+                        if '=' in remainder:
+                            keyrest, _, remainder = remainder.partition('=')
+                            current_key += keyrest
+                            looking_for_val = True
+                        else:
+                            current_key += remainder
+                            remainder = None
+            else:
+                if looking_for_val:
+                    current_val += node.latex_verbatim()
+                else:
+                    current_key += node.latex_verbatim()
+        if current_key:
+            self._keyvals[current_key.strip()] = current_val.strip()
+
+    def as_dict(self) -> dict[str, str]:
+        return {k: v for k, v in self._keyvals.items()}
+
+    @classmethod
+    def from_first_macro_arg(cls, args: ParsedMacroArgs) -> Optional['OptArgKeyVals']:
+        if not args.argnlist:
+            return None
+        first_arg = args.argnlist[0]
+        if not isinstance(first_arg, LatexGroupNode):  # is this even possible?
+            return None
+        if first_arg.delimiters != ('[', ']'):
+            return None
+        return cls(first_arg.nodelist)
+
+    def get_val(self, key: str) -> Optional[str]:
+        return self._keyvals.get(key)
+
+    def __len__(self) -> int:
+        return len(self._keyvals)
+
+
+
 
 
 #############
@@ -191,6 +263,76 @@ def get_annotatable_plaintext(
     _recurse(walker.get_latex_nodes()[0])
 
     return result
+
+
+def verbalization_from_macro(node: LatexMacroNode) -> str:
+    prefix = ''
+    postfix = ''
+    if not node.nodeargd:
+        return ''
+    if node.macroname in {'sr', 'definiendum'}:
+        verbalization = node.nodeargd.argnlist[-1].latex_verbatim()[1:-1]
+    else:
+        params = OptArgKeyVals.from_first_macro_arg(node.nodeargd)
+        if params:
+            prefix = params.get_val('pre') or ''
+            postfix = params.get_val('post') or ''
+        symbol = node.nodeargd.argnlist[-1].latex_verbatim()[1:-1]
+        verbalization = symbol.split('?')[-1]
+    if node.macroname in {'Sn', 'Sns', 'Definame'}:
+        if verbalization:
+            verbalization = verbalization[0].upper() + verbalization[1:]
+        else:
+            return ''
+    if node.macroname in {'sns', 'Sns'}:
+        verbalization += 's'
+
+    verbalization = prefix + verbalization + postfix
+
+    return verbalization
+
+
+def get_plaintext_approx(
+        walker: LatexWalker,
+        formula_token: str = 'X',
+) -> LinkedStr:
+    result: list[LinkedStr] = []
+
+    def _recurse(nodes):
+        for node in nodes:
+            if node is None or node.nodeType() in {LatexCommentNode, LatexSpecialsNode}:
+                continue
+            if node.nodeType() == LatexMathNode:
+                result.append(fixed_range_lstr(formula_token, node.pos, node.pos + node.len))
+            elif node.nodeType() == LatexMacroNode:
+                if node.macroname in PLAINTEXT_EXTRACTION_MACRO_RECURSION:
+                    for arg_idx in PLAINTEXT_EXTRACTION_MACRO_RECURSION[node.macroname]:
+                        _recurse([node.nodeargd.argnlist[arg_idx]])
+                elif node.macroname in {
+                    'definiendum', 'definame', 'Definame',
+                    'sn', 'sns', 'Sn', 'Sns', 'sr',
+                }:
+                    verbalization = verbalization_from_macro(node)
+                    result.append(fixed_range_lstr(verbalization, node.pos, node.pos + node.len))
+            elif node.nodeType() == LatexEnvironmentNode:
+                if node.envname in PLAINTEXT_EXTRACTION_ENVIRONMENT_RULES:
+                    recurse_content, recurse_args = PLAINTEXT_EXTRACTION_ENVIRONMENT_RULES[node.envname]
+                else:
+                    recurse_content, recurse_args = True, []
+                for arg_idx in recurse_args:
+                    _recurse([node.nodeargd.argnlist[arg_idx]])
+                if recurse_content:
+                    _recurse(node.nodelist)
+            elif node.nodeType() == LatexGroupNode:
+                _recurse(node.nodelist)
+            elif node.nodeType() == LatexCharsNode:
+                result.append(string_to_lstr(node.chars, node.pos))
+            else:
+                raise RuntimeError(f"Unexpected node type: {node.nodeType()}")
+
+    _recurse(walker.get_latex_nodes()[0])
+
+    return concatenate_lstrs(result, None)
 
 
 def iterate_latex_nodes(nodes) -> Iterable[LatexNode]:

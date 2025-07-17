@@ -1,14 +1,15 @@
 import functools
 from typing import Optional, Any
 
-from ffutil.snify.annotate import STeXAnnotateCommand
+from ffutil.snify.annotate import STeXAnnotateCommand, STeXLookupCommand
 from ffutil.snify.catalog import Catalog, Verbalization
 from ffutil.snify.local_stex_catalog import local_flams_stex_catalogs, \
     LocalFlamsCatalog
 from ffutil.snify.skip_and_ignore import SkipCommand, SkipUntilFileEnd, SkipForRestOfSession, IgnoreCommand, \
     AddWordToSrSkip, AddStemToSrSkip
 from ffutil.snify.snify_commands import View_i_Command, ViewCommand, ExitFileCommand, RescanOutcome, StemFocusCommand, \
-    StemFocusCommandPlus
+    StemFocusCommandPlus, PreviousWordShouldBeIncluded, FirstWordShouldntBeIncluded, NextWordShouldBeIncluded, \
+    LastWordShouldntBeIncluded
 from ffutil.snify.snifystate import SnifyState, SnifyCursor
 from ffutil.stepper.command import CommandCollection, CommandSectionLabel, CommandOutcome
 from ffutil.stepper.document import STeXDocument, Document
@@ -169,6 +170,13 @@ class SnifyStepper(DocumentModifyingStepper, QuittableStepper, CursorModifyingSt
 
                 CommandSectionLabel('\nAnnotation'),
                 STeXAnnotateCommand(self.state, self.current_annotation_choices, catalog, self),
+                STeXLookupCommand(self.state, catalog, self),
+
+                CommandSectionLabel('\nSelection modification'),
+                PreviousWordShouldBeIncluded(self.state),
+                FirstWordShouldntBeIncluded(self.state),
+                NextWordShouldBeIncluded(self.state),
+                LastWordShouldntBeIncluded(self.state),
 
                 CommandSectionLabel('\nSkipping'),
                 SkipCommand(self.state),

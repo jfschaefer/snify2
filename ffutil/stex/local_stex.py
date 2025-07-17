@@ -13,10 +13,10 @@ from ffutil.utils.json_iter import json_iter
 
 class FlamsUri:
     root: str
-    archive: Optional[str] = None
-    path: Optional[str] = None
-    module: Optional[str] = None
-    symbol: Optional[str] = None
+    archive: str = ''
+    path: str = ''
+    module: str = ''
+    symbol: str = ''
 
     def __init__(self, uri: str):
         if not isinstance(uri, str):

@@ -4,7 +4,7 @@ from typing import Sequence, Any
 
 from ffutil.snify.catalog import Verbalization
 from ffutil.snify.snifystate import SnifyCursor, SnifyState
-from ffutil.snify.stemming import string_to_stemmed_word_sequence_simplified, mystem
+from ffutil.snify.stemming import string_to_stemmed_word_sequence_simplified, mystem, string_to_stemmed_word_sequence
 from ffutil.stepper.document import Document
 from ffutil.snify.local_stex_catalog import LocalStexSymbol
 from ffutil.stepper.command import CommandOutcome, Command, CommandInfo
@@ -116,31 +116,6 @@ class RescanCommand(Command):
         return [RescanOutcome()]
 
 
-# class LookupCommand(Command):
-#     def __init__(self, state: SnifyState):
-#         super().__init__(CommandInfo(
-#             show=False,
-#             pattern_presentation='l',
-#             description_short='ookup a symbol',
-#             description_long='Look up a symbol for annotation'
-#         ))
-#         self.state = state
-#
-#     def execute(self, call: str) -> list[CommandOutcome]:
-#         file = state.get_current_file_simple_api(self.linker)
-#         cursor = state.cursor
-#         assert isinstance(cursor, SelectionCursor)
-#
-#         filter_fun = make_filter_fun(state.filter_pattern, state.ignore_pattern)
-#
-#         symbol = get_symbol_from_fzf(
-#             [symbol for symbol in get_symbols(self.linker) if filter_fun(symbol.declaring_file.archive.name)],
-#             lambda s: symbol_display(file, s, state, style=False)
-#         )
-#
-#         return self.get_outcome_for_symbol(symbol) if symbol else []
-
-
 class StemFocusCommand(Command):
     def __init__(self, stepper: Stepper):
         super().__init__(CommandInfo(
@@ -190,3 +165,125 @@ class StemFocusCommandPlus(Command):
             FocusOutcome(new_state, self.stepper),
             SetCursorOutcome(SnifyCursor(state.cursor.document_index, state.cursor.selection[0])),
         ]
+
+
+class PreviousWordShouldBeIncluded(Command):
+    def __init__(self, state: SnifyState):
+        self.state = state
+        super().__init__(CommandInfo(
+            show=False,
+            pattern_presentation='p',
+            description_short='revious token should be included',
+            description_long='Extends the selection to include the previous token.')
+        )
+
+    def execute(self, call: str) -> list[CommandOutcome]:
+        state = self.state
+        doc = state.get_current_document()
+        for lstr in doc.get_annotatable_plaintext():
+            if lstr.get_end_ref() >= state.cursor.selection[0]:
+                words = string_to_stemmed_word_sequence(lstr, doc.language)
+                i = 0
+                while i < len(words) and words[i].get_end_ref() <= state.cursor.selection[0]:
+                    i += 1
+                if i == 0:
+                    interface.admonition(
+                        'Already at beginning of possible selection range.',
+                        'error',
+                        confirm=True
+                    )
+                    return []
+                return [SetCursorOutcome(SnifyCursor(
+                    state.cursor.document_index,
+                    (words[i - 1].get_start_ref(), state.cursor.selection[1]),
+                ))]
+        raise RuntimeError('Somehow I did not find the previous word.')
+
+
+class FirstWordShouldntBeIncluded(Command):
+    def __init__(self, state: SnifyState):
+        self.state = state
+        super().__init__(CommandInfo(
+            show=False,
+            pattern_presentation='P',
+            description_short=' exclude first selected token',
+            description_long='Opposite of [p]. Excludes the first token from the selection.')
+        )
+
+    def execute(self, call: str) -> list[CommandOutcome]:
+        state = self.state
+        doc = state.get_current_document()
+        for lstr in doc.get_annotatable_plaintext():
+            if lstr.get_end_ref() >= state.cursor.selection[0]:
+                words = string_to_stemmed_word_sequence(lstr, doc.language)
+                i = 0
+                while i < len(words) and words[i].get_end_ref() <= state.cursor.selection[0]:
+                    i += 1
+                new_start = words[i + 1].get_start_ref()
+                if new_start >= state.cursor.selection[1]:
+                    interface.admonition('Selection is getting too small', 'error', confirm=True)
+                    return []
+                return [SetCursorOutcome(SnifyCursor(
+                    state.cursor.document_index,
+                    (new_start, state.cursor.selection[1]),
+                ))]
+        raise RuntimeError('I could not find the first word.')
+
+
+class NextWordShouldBeIncluded(Command):
+    def __init__(self, state: SnifyState):
+        self.state = state
+        super().__init__(CommandInfo(
+            show=False,
+            pattern_presentation='n',
+            description_short='ext token should be included',
+            description_long='Extends the selection to include the next token.')
+        )
+
+    def execute(self, call: str) -> list[CommandOutcome]:
+        state = self.state
+        doc = state.get_current_document()
+        for lstr in doc.get_annotatable_plaintext():
+            if lstr.get_end_ref() >= state.cursor.selection[0]:
+                words = string_to_stemmed_word_sequence(lstr, doc.language)
+                i = 0
+                while i < len(words) and words[i].get_start_ref() < state.cursor.selection[1]:
+                    i += 1
+                if i == len(words):
+                    interface.admonition('Already at end of possible selection range.', 'error', confirm=True)
+                    return []
+                return [SetCursorOutcome(SnifyCursor(
+                    state.cursor.document_index,
+                    (state.cursor.selection[0], words[i].get_end_ref()),
+                ))]
+        raise RuntimeError('Somehow I did not find the next word.')
+
+
+class LastWordShouldntBeIncluded(Command):
+    def __init__(self, state: SnifyState):
+        self.state = state
+        super().__init__(CommandInfo(
+            show=False,
+            pattern_presentation='N',
+            description_short=' exclude last selected token',
+            description_long='Opposite of [n]. Excludes the last token from the selection.')
+        )
+
+    def execute(self, call: str) -> list[CommandOutcome]:
+        state = self.state
+        doc = state.get_current_document()
+        for lstr in doc.get_annotatable_plaintext():
+            if lstr.get_end_ref() >= state.cursor.selection[0]:
+                words = string_to_stemmed_word_sequence(lstr, doc.language)
+                i = 0
+                while i < len(words) and words[i].get_start_ref() < state.cursor.selection[1]:
+                    i += 1
+                new_end = words[i - 2].get_end_ref()
+                if new_end <= state.cursor.selection[0]:
+                    interface.admonition('Selection is getting too small', 'error', confirm=True)
+                    return []
+                return [SetCursorOutcome(SnifyCursor(
+                    state.cursor.document_index,
+                    (state.cursor.selection[0], new_end),
+                ))]
+        raise RuntimeError('I could not find the last word.')

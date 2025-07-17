@@ -4,6 +4,7 @@ from pathlib import Path
 import click
 
 from ffutil.config import get_config, CACHE_DIR
+from ffutil.lexicon.lexgen import lexgen
 from ffutil.snify.snify import snify
 from ffutil.stepper.interface import set_interface, DEFAULT_INTERFACES
 
@@ -37,6 +38,18 @@ def snify_command(files, interface):
         click.echo('No files specified. Please provide paths to files or directories to snify.')
         return
     snify(files)
+
+@cli.command(name='lexgen', help='lexicong generation')
+@click.argument(
+    'files', nargs=-1, type=click.Path(exists=True, path_type=Path),
+)
+@interface_option
+def lexgen_command(files, interface):
+    set_interface(interface)
+    if not files:
+        click.echo('No files specified. Please provide paths to files or directories to snify.')
+        return
+    lexgen(files)
 
 @cli.command(help='Clear the cache. The cache is automatically cleared whenever stextools is updated.')
 def clear_cache():

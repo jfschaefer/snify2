@@ -6,7 +6,7 @@ from typing import Iterable, Optional
 from pylatexenc.latexwalker import LatexWalker
 
 from ffutil.stex.local_stex import lang_from_path
-from ffutil.stex.stex_py_parsing import STEX_CONTEXT_DB, get_annotatable_plaintext
+from ffutil.stex.stex_py_parsing import STEX_CONTEXT_DB, get_annotatable_plaintext, get_plaintext_approx
 from ffutil.stex.flams import FLAMS
 from ffutil.utils.linked_str import LinkedStr
 
@@ -26,6 +26,9 @@ class Document(abc.ABC):
         pass
 
     def get_annotatable_plaintext(self) -> Iterable[LinkedStr[None]]:
+        raise NotImplementedError()
+
+    def get_plaintext_approximation(self) -> LinkedStr:
         raise NotImplementedError()
 
     def get_inputted_documents(self) -> Iterable['Document']:
@@ -76,6 +79,9 @@ class STeXDocument(Document):
         return get_annotatable_plaintext(
             self.get_latex_walker()
         )
+
+    def get_plaintext_approximation(self) -> LinkedStr:
+        return get_plaintext_approx(self.get_latex_walker())
 
 
 def documents_from_paths(
